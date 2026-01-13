@@ -1,0 +1,288 @@
+version: 2.1
+
+orbs:
+  github-cli: circleci/github-cli@2.6.3
+  macos: circleci/macos@2.5.2
+  windows: circleci/windows@5
+  node: circleci/node@5.2.0
+  cypress: cypress-io/cypress@4
+
+jobs:
+
+  check-version:
+    docker:
+      - image: cimg/node:22.15.0
+    steps:
+      - checkout
+      - run:
+          name: Install dependencies
+          command: npm install semver
+      - run:
+          name: Check if version is greater than master
+          command: ./docker/check-version.sh
+
+  test-basic:
+    docker:
+      - image: cimg/base:stable
+    steps:
+      - setup_remote_docker:
+          docker_layer_caching: true
+      - checkout
+      - run:
+          name: Run type-check and lint
+          command: ./docker/test_basic.sh
+
+  test-cypress:
+    docker:
+      - image: cypress/included:14.3.3
+    steps:
+      - checkout
+      - run:
+          name: Install dependencies
+          command: npm install
+      - run:
+          name: Build web assets
+          command: npm run build
+      - run:
+          name: Start test server
+          command: npm run preview
+          background: true
+      - run:
+          name: Run Cypress tests
+          command: CYPRESS_BASE_URL=http://localhost:4173 npm run cy:run
+
+  create-release:
+    docker:
+      - image: cimg/node:22.15.0
+    steps:
+      - checkout
+      - github-cli/setup:
+          token: GH_TOKEN
+      - run:
+          name: Extract version and create release
+          command: |
+            # Get the version from package.json
+            VERSION=$(node -p "require('./package.json').version")
+            
+            # Check if a release with this version already exists
+            if gh release view "v$VERSION" &> /dev/null; then
+              echo "Release v$VERSION already exists. Skipping release creation."
+              exit 1
+            fi
+            
+            # Get the latest commit message
+            COMMIT_MSG=$(git log -1 --pretty=%B)
+            
+            # Create a draft release using gh cli
+            echo "Creating new release v$VERSION"
+            gh release create "v$VERSION" \
+              --draft \
+              --title "$VERSION" \
+              --notes "## What's Changed
+            
+              $COMMIT_MSG"
+
+  publish-release:
+    docker:
+      - image: cimg/node:22.15.0
+    steps:
+      - checkout
+      - github-cli/setup:
+          token: GH_TOKEN
+      - run:
+          name: Publish latest draft release
+          command: |
+            # Get the version from package.json
+            VERSION=$(node -p "require('./package.json').version")
+            
+            # Find and publish the draft release
+            gh release edit "v$VERSION" --draft=false
+
+  build-web:
+    parameters:
+      target_repo:
+        type: string
+        default: "git@github.com:dtom90/PomoTrack.git"
+      target_branch:
+        type: string
+        default: "gh-pages"
+      ssh_fingerprint:
+        type: string
+        default: "SHA256:NDKPWa+kMya3u32KAI0pfVcWCqpaTWqK4Nzr+8Pegh8"
+      cname:
+        type: string
+        default: "pomodash.app"
+    docker:
+      - image: cimg/node:22.15.0
+    steps:
+      - setup_remote_docker:
+          docker_layer_caching: true
+      - add_ssh_keys:
+          fingerprints:
+            - << parameters.ssh_fingerprint >>
+      - checkout
+      - run:
+          name: Build GitHub Pages
+          command: ./docker/gh-pages.sh
+      - run:
+          name: Update CNAME if needed
+          command: |
+            echo "<< parameters.cname >>" > dist_web/CNAME
+            echo "CNAME set to: << parameters.cname >>"
+      - run:
+          name: Publish to GitHub Pages
+          command: |
+            npm install gh-pages@6.3.0 -g
+            git config user.email "dtom90@users.noreply.github.com"
+            git config user.name "David Thomason"
+            npx gh-pages --dist dist_web --dotfiles --no-history --message "GitHub Pages" --repo << parameters.target_repo >> --branch << parameters.target_branch >>
+
+  build-mac:
+    macos:
+      xcode: 16.1.0
+    resource_class: macos.m3.medium.gen1
+    steps:
+      - macos/install-rosetta
+      - run:
+          name: Install NVM
+          command: |
+            set +e
+            wget -qO- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+            [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+      - checkout
+      - restore_cache:
+          keys:
+            - v1-dependencies-{{ checksum "package-lock.json" }}
+            # fallback to using the latest cache if no exact match is found
+            - v1-dependencies-
+      - run:
+          name: Install Node
+          command: |
+            set +e
+            nvm install v22.15.0
+            nvm alias default v22.15.0
+      - run:
+          name: Install dependencies
+          command: |
+            set +e
+            pip install setuptools
+            npm install
+      - save_cache:
+          paths:
+            - node_modules
+          key: v1-dependencies-{{ checksum "package-lock.json" }}
+      - run:
+          name: Reset xcode selection
+          command: sudo xcode-select -r
+      - run:
+          name: Build macOS app
+          command: npm run electron:build
+
+  build-windows:
+    executor:
+      name: windows/default
+      size: medium
+    steps:
+      - checkout
+      - run:
+          name: Install NVM
+          command: |
+            $webClient = New-Object System.Net.WebClient
+            $webClient.DownloadFile("https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh", "$env:TEMP\install.sh")
+            bash $env:TEMP\install.sh
+      - run:
+          name: Install Node
+          command: |
+            . ~/.nvm/nvm.sh
+            nvm install v22.15.0
+            nvm use v22.15.0
+      - restore_cache:
+          keys:
+            - v1-dependencies-{{ checksum "package-lock.json" }}
+            # fallback to using the latest cache if no exact match is found
+            - v1-dependencies-
+      - run:
+          name: Install dependencies
+          command: |
+            . ~/.nvm/nvm.sh
+            nvm use v22.15.0
+            npm install
+      - save_cache:
+          paths:
+            - node_modules
+          key: v1-dependencies-{{ checksum "package-lock.json" }}
+      - run:
+          name: Build Windows app
+          command: |
+            . ~/.nvm/nvm.sh
+            nvm use v22.15.0
+            npm run electron:build -- --win
+
+workflows:
+  version: 2
+  test:
+    jobs:
+      - check-version:
+          filters:
+            branches:
+              ignore:
+                - master
+                - gh-pages
+      - test-basic:
+          filters:
+            branches:
+              ignore:
+                - master
+                - gh-pages
+      - test-cypress:
+          filters:
+            branches:
+              ignore:
+                - master
+                - gh-pages
+  release-workflow:
+    jobs:
+      - create-release:
+          filters:
+            branches:
+              only: master
+      - build-web:
+          filters:
+            branches:
+              only:
+                - master
+      - build-mac:
+          requires:
+            - create-release
+          filters:
+            branches:
+              only:
+                - master
+      # - build-windows:
+      #     requires:
+      #       - create-release
+      #     filters:
+      #       branches:
+      #         only:
+      #           - master
+      - publish-release:
+          requires:
+            - build-mac
+            # - build-windows
+          filters:
+            branches:
+              only: master
+
+  # New workflow for DevTrack gh-pages deployment
+  deploy-to-devtrack:
+    jobs:
+      - build-web:
+          name: deploy-to-devtrack
+          target_repo: "git@github.com:dtom90/DevTrack.git"
+          ssh_fingerprint: "SHA256:yU3fmPL2vH/VjtNkLb6dgI/JKV7MDY5Dppc71sJMouE"
+          cname: "devtrack.app"
+          filters:
+            branches:
+              only: develop
