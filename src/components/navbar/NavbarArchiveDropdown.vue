@@ -8,7 +8,17 @@
   >
     <div>
       <BDropdownHeader>
-        Archived Tasks
+        <div class="d-flex justify-content-between align-items-center w-100">
+          <span>Archived Tasks</span>
+          <BButton
+            variant="light"
+            size="sm"
+            class="p-0"
+            @click.stop="showDeleteModal = true"
+          >
+            <font-awesome-icon icon="trash-alt" />
+          </BButton>
+        </div>
       </BDropdownHeader>
       <BDropdownDivider />
       <template v-if="archivedTasks.length">
@@ -63,6 +73,22 @@
       </div>
     </div>
   </b-nav-item-dropdown>
+
+  <!-- Delete Confirmation Modal -->
+  <BModal
+    id="delete-archived-modal"
+    v-model="showDeleteModal"
+    title="Delete All Archived Tasks"
+    no-close-on-backdrop
+    size="sm"
+    ok-title="Delete All"
+    cancel-title="Cancel"
+    ok-variant="danger"
+    @ok="handleDeleteAllArchived"
+    @cancel="showDeleteModal = false"
+  >
+    <p class="mb-0">Are you sure you want to delete all {{ archivedTasks.length }} archived task{{ archivedTasks.length !== 1 ? 's' : '' }}? This action cannot be undone.</p>
+  </BModal>
 </template>
 
 <script setup lang="ts">
@@ -75,7 +101,8 @@ import {
   BDropdownHeader,
   BDropdownDivider,
   BDropdownItem,
-  BButton
+  BButton,
+  BModal
 } from 'bootstrap-vue-next'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 
@@ -85,6 +112,7 @@ const store = useStore()
 // Refs
 const dropdownRef = ref<InstanceType<typeof BNavItemDropdown> | null>(null)
 const activeSubmenu = ref<string | null>(null)
+const showDeleteModal = ref(false)
 
 // Computed
 const archivedTasks = computed<Task[]>(() => store.getters.archivedTasks)
@@ -102,6 +130,12 @@ const closeSubmenu = () => {
 const unarchiveTask = (taskId: string) => {
   store.dispatch('archiveTask', { taskId, archived: false })
   closeSubmenu()
+}
+
+const handleDeleteAllArchived = () => {
+  store.dispatch('deleteAllArchivedTasks')
+  showDeleteModal.value = false
+  dropdownRef.value?.hide()
 }
 
 </script>
@@ -128,5 +162,11 @@ const unarchiveTask = (taskId: string) => {
 /*noinspection CssUnusedSymbol*/
 .dropdown-header {
   text-align: left;
+}
+
+/*noinspection CssUnusedSymbol*/
+#delete-archived-modal .modal-content {
+  height: auto !important;
+  max-height: none !important;
 }
 </style>

@@ -488,6 +488,38 @@ const actions = {
   closeActivityModal ({ commit }: ActionContext<PomoTrackState, PomoTrackState>) {
     if (!dexieDb) return
     commit('setActivityModalVisible', false)
+  },
+
+  async deleteAllArchivedTasks ({ getters, commit }: ActionContext<PomoTrackState, PomoTrackState>) {
+    if (!dexieDb) return
+    const archivedTasks: Task[] = getters.archivedTasks
+    if (archivedTasks.length === 0) {
+      return
+    }
+    const taskIds = archivedTasks.map(task => task.id)
+
+    // Delete task logs
+    await handleDexieError(
+      dexieDb.logs.where('taskId').anyOf(taskIds).delete(),
+      'logs.delete deleteAllArchivedTasks',
+      { taskIds }
+    )
+
+    // Delete task tag maps
+    await handleDexieError(
+      dexieDb.taskTagMap.where('taskId').anyOf(taskIds).delete(),
+      'taskTagMap.delete deleteAllArchivedTasks',
+      { taskIds }
+    )
+
+    // Delete tasks
+    await handleDexieError(
+      dexieDb.tasks.where('id').anyOf(taskIds).delete(),
+      'tasks.delete deleteAllArchivedTasks',
+      { taskIds }
+    )
+
+    commit('deleteTasks', { taskIds })
   }
 }
 
