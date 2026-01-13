@@ -62,6 +62,18 @@ const mutations: MutationTree<PomoTrackState> = {
     })
   },
 
+  deleteTask (state: PomoTrackState, { taskId }: { taskId: string }) {
+    delete state.tasks[taskId]
+    delete state.taskTagsMap[taskId]
+  },
+
+  deleteTasks (state: PomoTrackState, { taskIds }: { taskIds: string[] }) {
+    taskIds.forEach(taskId => {
+      delete state.tasks[taskId]
+      delete state.taskTagsMap[taskId]
+    })
+  },
+
   /** Logs **/
 
   startTask (state: PomoTrackState, { log }: { log: TaskLog }) {
