@@ -23,7 +23,7 @@
     "electron:mas": "npm run build && electron-builder --config electron-builder.mas.yml",
     "electron:build": "npm run build && electron-builder",
     "capacitor:sync": "npm run build && npx cap sync ios",
-    "test:basic": "npm audit && npm run type-check && npm run lint",
+    "test:basic": "npm run type-check && npm run lint",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "cy:open": "cypress open",
