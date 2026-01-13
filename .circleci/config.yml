@@ -140,6 +140,7 @@ jobs:
   build-mac:
     macos:
       xcode: 16.1.0
+    resource_class: macos.m3.medium.gen1
     steps:
       - macos/install-rosetta
       - run:
